@@ -99,17 +99,19 @@ public:
 
 
 /** Constants used throughout the code, useful typedefs and utility functions */
-class cChunkDef
-{
-public:
+class cChunkDef  // tolua_export
+{  // tolua_export
+public:  // tolua_export
 
-	// Chunk dimensions:
+	// Chunk dimensions, exported in ManualBindings.cpp
 	static const int Width = 16;
-	static const int Height = 256;
-	static const int NumBlocks = Width * Height * Width;
+	static constexpr int LowerLimit = 0;  // Lower Limit for chunk coordinates (for future use, when negative height is supported). MUST BE NEGATIVE OR ZERO!
+	static const int UpperLimit = 256;
+	static constexpr int VerticalBlockCount = UpperLimit - LowerLimit;
+	static const int NumBlocks = Width * VerticalBlockCount * Width;
 
 	static const int SectionHeight = 16;
-	static const size_t NumSections = (cChunkDef::Height / SectionHeight);
+	static const size_t NumSections = (VerticalBlockCount / SectionHeight);
 
 	/** The type used for any heightmap operations and storage; idx = x + Width * z; Height points to the highest non-air block in the column */
 	typedef HEIGHTTYPE HeightMap[Width * Width];
@@ -164,21 +166,34 @@ public:
 	}
 
 
-	/** Validates a height-coordinate. Returns false if height-coordinate is out of height bounds */
-	inline static bool IsValidHeight(Vector3i a_BlockPosition)
+	/** Validates a height-coordinate. Returns false if height-coordinate is out of height bounds.
+	Might be enclosed by a_SpaceBelow and a_SpaceAbove. [LowerLimit + a_SpaceBelow, UpperLimit - a_SpaceAbove) is valid. */
+	inline static bool IsValidHeight(Vector3i a_BlockPosition, int a_SpaceAbove = 0, int a_SpaceBelow = 0)
 	{
-		return ((a_BlockPosition.y >= 0) && (a_BlockPosition.y < Height));
+		ASSERT(a_SpaceBelow >= 0);
+		ASSERT(a_SpaceAbove >= 0);
+		return ((a_BlockPosition.y >= LowerLimit + a_SpaceBelow) && (a_BlockPosition.y < UpperLimit - a_SpaceAbove));
+	}
+
+	/** DEPRECATED!!! Validates a height-coordinate. Returns false if height-coordinate is out of height bounds.
+	Might be enclosed by a_SpaceBelow and a_SpaceAbove. [LowerLimit + a_SpaceBelow, UpperLimit - a_SpaceAbove) is valid.
+	@deprecated */
+	inline static bool IsValidHeight(int a_Height, int a_SpaceAbove = 0, int a_SpaceBelow = 0)
+	{
+		ASSERT(a_SpaceBelow >= 0);
+		ASSERT(a_SpaceAbove >= 0);
+		return ((a_Height >= LowerLimit + a_SpaceBelow) && (a_Height < UpperLimit - a_SpaceAbove));
 	}
 
 
-	/** Validates a width-coordinate. Returns false if width-coordiante is out of width bounds */
+	/** Validates a width-coordinate. Returns false if width-coordinate is out of width bounds */
 	inline static bool IsValidWidth(int a_Width)
 	{
 		return ((a_Width >= 0) && (a_Width < Width));
 	}
 
 
-	/** Validates a chunk relative coordinate. Returns false if the coordiante is out of bounds for a chunk. */
+	/** Validates a chunk relative coordinate. Returns false if the coordinate is out of bounds for a chunk. */
 	inline static bool IsValidRelPos(Vector3i a_RelPos)
 	{
 		return (
@@ -215,7 +230,7 @@ public:
 			// For some reason, NOT using the Horner schema is faster. Weird.
 			return static_cast<size_t>(x + (z * Width) + (y * Width * Width));   // 1.2 uses XZY
 		#elif AXIS_ORDER == AXIS_ORDER_YZX
-			return static_cast<size_t>(y + (z * Width) + (x * Height * Width));  // 1.1 uses YZX
+			return static_cast<size_t>(y + (z * Width) + (x * UpperLimit * Width));  // 1.1 uses YZX
 		#endif
 	}
 
@@ -236,9 +251,9 @@ public:
 			);
 		#elif AXIS_ORDER == AXIS_ORDER_YZX
 			return Vector3i(  // 1.1
-				static_cast<int>(index / (cChunkDef::Height * cChunkDef::Width)),  // X
-				static_cast<int>(index % cChunkDef::Height),                       // Y
-				static_cast<int>((index / cChunkDef::Height) % cChunkDef::Width)   // Z
+				static_cast<int>(index / (cChunkDef::UpperLimit * cChunkDef::Width)),  // X
+				static_cast<int>(index % cChunkDef::UpperLimit),                       // Y
+				static_cast<int>((index / cChunkDef::UpperLimit) % cChunkDef::Width)   // Z
 			);
 		#endif
 	}
@@ -247,7 +262,7 @@ public:
 	inline static void SetBlock(BLOCKTYPE * a_BlockTypes, int a_X, int a_Y, int a_Z, BLOCKTYPE a_Type)
 	{
 		ASSERT((a_X >= 0) && (a_X < Width));
-		ASSERT((a_Y >= 0) && (a_Y < Height));
+		ASSERT((a_Y >= LowerLimit) && (a_Y < UpperLimit));
 		ASSERT((a_Z >= 0) && (a_Z < Width));
 		a_BlockTypes[MakeIndex(a_X, a_Y, a_Z)] = a_Type;
 	}
@@ -255,7 +270,7 @@ public:
 
 	inline static void SetBlock(BLOCKTYPE * a_BlockTypes, int a_Index, BLOCKTYPE a_Type)
 	{
-		ASSERT((a_Index >= 0) && (a_Index <= NumBlocks));
+		ASSERT((a_Index >= LowerLimit) && (a_Index <= NumBlocks));
 		a_BlockTypes[a_Index] = a_Type;
 	}
 
@@ -270,7 +285,7 @@ public:
 	inline static BLOCKTYPE GetBlock(const BLOCKTYPE * a_BlockTypes, int a_X, int a_Y, int a_Z)
 	{
 		ASSERT((a_X >= 0) && (a_X < Width));
-		ASSERT((a_Y >= 0) && (a_Y < Height));
+		ASSERT((a_Y >= LowerLimit) && (a_Y < UpperLimit));
 		ASSERT((a_Z >= 0) && (a_Z < Width));
 		return a_BlockTypes[MakeIndex(a_X, a_Y, a_Z)];
 	}
@@ -317,7 +332,11 @@ public:
 
 	static NIBBLETYPE GetNibble(const NIBBLETYPE * a_Buffer, int x, int y, int z)
 	{
-		if ((x < Width) && (x > -1) && (y < Height) && (y > -1) && (z < Width) && (z > -1))
+		if (
+			(x < Width)  && (x >= 0) &&
+			(y < UpperLimit) && (y >= LowerLimit) &&
+			(z < Width)  && (z >= 0)
+		)
 		{
 			return ExpandNibble(a_Buffer, MakeIndex(x, y, z));
 		}
@@ -341,7 +360,7 @@ public:
 	{
 		return (a_Buffer[a_Index / 2] >> ((a_Index & 1) * 4)) & 0x0f;
 	}
-} ;
+} ;  // tolua_export
 
 
 

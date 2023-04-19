@@ -435,7 +435,7 @@ void cChunk::WriteBlockArea(cBlockArea & a_Area, int a_MinBlockX, int a_MinBlock
 	int BlockEndZ   = std::min(a_MinBlockZ + a_Area.GetSizeZ(), (m_PosZ + 1) * cChunkDef::Width);
 	int SizeX = BlockEndX - BlockStartX;  // Size of the union
 	int SizeZ = BlockEndZ - BlockStartZ;
-	int SizeY = std::min(a_Area.GetSizeY(), cChunkDef::Height - a_MinBlockY);
+	int SizeY = std::min(a_Area.GetSizeY(), cChunkDef::UpperLimit - a_MinBlockY);
 	int OffX = BlockStartX - m_PosX * cChunkDef::Width;  // Offset within the chunk where the union starts
 	int OffZ = BlockStartZ - m_PosZ * cChunkDef::Width;
 	int BaseX = BlockStartX - a_MinBlockX;  // Offset within the area where the union starts
@@ -600,7 +600,7 @@ void cChunk::GetRandomBlockCoords(int & a_X, int & a_Y, int & a_Z)
 	// MG TODO : check if this kind of optimization (only one random call) is still needed
 	// MG TODO : if so propagate it
 
-	GetThreeRandomNumbers(a_X, a_Y, a_Z, cChunkDef::Width, cChunkDef::Height - 2, cChunkDef::Width);
+	GetThreeRandomNumbers(a_X, a_Y, a_Z, cChunkDef::Width, cChunkDef::UpperLimit - 2, cChunkDef::Width);
 	a_Y++;
 }
 
@@ -636,8 +636,7 @@ void cChunk::SpawnMobs(cMobSpawner & a_MobSpawner)
 		TryY += CenterY;
 		TryZ += CenterZ;
 
-		ASSERT(TryY > 0);
-		ASSERT(TryY < cChunkDef::Height - 1);
+		ASSERT(cChunkDef::IsValidHeight(TryY, 1));
 
 		int WorldX, WorldY, WorldZ;
 		PositionToWorldPosition(TryX, TryY, TryZ, WorldX, WorldY, WorldZ);
@@ -935,7 +934,7 @@ void cChunk::ApplyWeatherToTop()
 			FastSetBlock(X, Height, Z, E_BLOCK_SNOW, TopMeta - 1);
 		}
 	}
-	else if (cBlockInfo::IsSnowable(TopBlock) && (Height < cChunkDef::Height - 1))
+	else if (cChunkDef::IsValidHeight(TopBlock, 1) && cBlockInfo::IsSnowable(TopBlock))
 	{
 		SetBlock({X, Height + 1, Z}, E_BLOCK_SNOW, 0);
 	}
@@ -1210,7 +1209,7 @@ bool cChunk::IsWeatherWetAt(const Vector3i a_Position) const
 		return false;
 	}
 
-	if (a_Position.y >= cChunkDef::Height)
+	if (a_Position.y >= cChunkDef::UpperLimit)
 	{
 		return true;
 	}
@@ -1354,7 +1353,7 @@ void cChunk::FastSetBlock(int a_RelX, int a_RelY, int a_RelZ, BLOCKTYPE a_BlockT
 		}
 		else
 		{
-			for (int y = a_RelY - 1; y > 0; --y)
+			for (int y = a_RelY - 1; y > cChunkDef::LowerLimit; --y)
 			{
 				if (GetBlock(a_RelX, y, a_RelZ) != E_BLOCK_AIR)
 				{

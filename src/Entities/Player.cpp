@@ -2378,7 +2378,7 @@ bool cPlayer::DoesPlacingBlocksIntersectEntity(const std::initializer_list<sSetB
 			m_World->GetBlock({ x - 1, y, z }),
 			m_World->GetBlock({ x + 1, y, z }),
 			(y == 0) ? static_cast<BLOCKTYPE>(E_BLOCK_AIR) : m_World->GetBlock({ x, y - 1, z }),
-			(y == cChunkDef::Height - 1) ? static_cast<BLOCKTYPE>(E_BLOCK_AIR) : m_World->GetBlock({ x, y + 1, z }),
+			(y == cChunkDef::UpperLimit - 1) ? static_cast<BLOCKTYPE>(E_BLOCK_AIR) : m_World->GetBlock({ x, y + 1, z }),
 			m_World->GetBlock({ x, y, z - 1 }),
 			m_World->GetBlock({ x, y, z + 1 })
 		);
@@ -2760,11 +2760,8 @@ void cPlayer::TickFreezeCode()
 			if (RelSuccess)
 			{
 				int NewY = Rel.y;
-				if (NewY < 0)
-				{
-					NewY = 0;
-				}
-				while (NewY < cChunkDef::Height - 2)
+				NewY = std::max(0, NewY);
+				while (cChunkDef::IsValidHeight(NewY, 2))
 				{
 					// If we find a position with enough space for the player
 					if (

@@ -20,7 +20,7 @@ cChunkDesc::cChunkDesc(cChunkCoords a_Coords) :
 	m_bUseDefaultComposition(true),
 	m_bUseDefaultFinish(true)
 {
-	m_BlockArea.Create(cChunkDef::Width, cChunkDef::Height, cChunkDef::Width);
+	m_BlockArea.Create(cChunkDef::Width, cChunkDef::UpperLimit, cChunkDef::Width);
 	/*
 	memset(m_BlockTypes, 0, sizeof(cChunkDef::BlockTypes));
 	memset(m_BlockMeta,  0, sizeof(cChunkDef::BlockNibbles));
@@ -156,7 +156,7 @@ void cChunkDesc::SetHeightFromShape(const Shape & a_Shape)
 	{
 		for (int x = 0; x < cChunkDef::Width; x++)
 		{
-			for (HEIGHTTYPE y = cChunkDef::Height - 1; y > 0; y--)
+			for (HEIGHTTYPE y = cChunkDef::UpperLimit - 1; y > cChunkDef::LowerLimit; y--)
 			{
 				if (a_Shape[y + x * 256 + z * 16 * 256] != 0)
 				{
@@ -179,12 +179,12 @@ void cChunkDesc::GetShapeFromHeight(Shape & a_Shape) const
 		for (int x = 0; x < cChunkDef::Width; x++)
 		{
 			int height = cChunkDef::GetHeight(m_HeightMap, x, z);
-			for (int y = 0; y <= height; y++)
+			for (int y = cChunkDef::LowerLimit; y <= height; y++)
 			{
 				a_Shape[y + x * 256 + z * 16 * 256] = 1;
 			}
 
-			for (int y = height + 1; y < cChunkDef::Height; y++)
+			for (int y = height + 1; y < cChunkDef::UpperLimit; y++)
 			{
 				a_Shape[y + x * 256 + z * 16 * 256] = 0;
 			}  // for y
@@ -320,25 +320,25 @@ void cChunkDesc::ReadBlockArea(cBlockArea & a_Dest, int a_MinRelX, int a_MaxRelX
 		a_MaxRelX = cChunkDef::Width;
 	}
 
-	if (a_MinRelY < 0)
+	if (a_MinRelY < cChunkDef::LowerLimit)
 	{
-		LOGWARNING("%s: MinRelY less than zero, adjusting to zero", __FUNCTION__);
+		LOGWARNING("%s: MinRelY less than chunk limit, adjusting to chunk limit", __FUNCTION__);
 		a_MinRelY = 0;
 	}
-	else if (a_MinRelY >= cChunkDef::Height)
+	else if (a_MinRelY >= cChunkDef::UpperLimit)
 	{
 		LOGWARNING("%s: MinRelY more than chunk height, adjusting to chunk height", __FUNCTION__);
-		a_MinRelY = cChunkDef::Height - 1;
+		a_MinRelY = cChunkDef::UpperLimit - 1;
 	}
 	if (a_MaxRelY < 0)
 	{
 		LOGWARNING("%s: MaxRelY less than zero, adjusting to zero", __FUNCTION__);
 		a_MaxRelY = 0;
 	}
-	else if (a_MaxRelY > cChunkDef::Height)
+	else if (a_MaxRelY > cChunkDef::UpperLimit)
 	{
 		LOGWARNING("%s: MaxRelY more than chunk height, adjusting to chunk height", __FUNCTION__);
-		a_MaxRelY = cChunkDef::Height;
+		a_MaxRelY = cChunkDef::UpperLimit;
 	}
 
 	if (a_MinRelZ < 0)
@@ -372,7 +372,7 @@ void cChunkDesc::ReadBlockArea(cBlockArea & a_Dest, int a_MinRelX, int a_MaxRelX
 	a_Dest.m_Origin.z = m_Coords.m_ChunkZ * cChunkDef::Width + a_MinRelZ;
 	a_Dest.SetSize(SizeX, SizeY, SizeZ, cBlockArea::baTypes | cBlockArea::baMetas);
 
-	for (int y = 0; y < SizeY; y++)
+	for (int y = cChunkDef::LowerLimit; y < SizeY; y++)
 	{
 		int CDY = a_MinRelY + y;
 		for (int z = 0; z < SizeZ; z++)
@@ -439,7 +439,7 @@ void cChunkDesc::FillRelCuboid(
 	int MinY = std::max(a_MinY, 0);
 	int MinZ = std::max(a_MinZ, 0);
 	int MaxX = std::min(a_MaxX, cChunkDef::Width - 1);
-	int MaxY = std::min(a_MaxY, cChunkDef::Height - 1);
+	int MaxY = std::min(a_MaxY, cChunkDef::UpperLimit - 1);
 	int MaxZ = std::min(a_MaxZ, cChunkDef::Width - 1);
 
 	for (int y = MinY; y <= MaxY; y++)
@@ -470,7 +470,7 @@ void cChunkDesc::ReplaceRelCuboid(
 	int MinY = std::max(a_MinY, 0);
 	int MinZ = std::max(a_MinZ, 0);
 	int MaxX = std::min(a_MaxX, cChunkDef::Width - 1);
-	int MaxY = std::min(a_MaxY, cChunkDef::Height - 1);
+	int MaxY = std::min(a_MaxY, cChunkDef::UpperLimit - 1);
 	int MaxZ = std::min(a_MaxZ, cChunkDef::Width - 1);
 
 	for (int y = MinY; y <= MaxY; y++)
@@ -506,7 +506,7 @@ void cChunkDesc::FloorRelCuboid(
 	int MinY = std::max(a_MinY, 0);
 	int MinZ = std::max(a_MinZ, 0);
 	int MaxX = std::min(a_MaxX, cChunkDef::Width - 1);
-	int MaxY = std::min(a_MaxY, cChunkDef::Height - 1);
+	int MaxY = std::min(a_MaxY, cChunkDef::UpperLimit - 1);
 	int MaxZ = std::min(a_MaxZ, cChunkDef::Width - 1);
 
 	for (int y = MinY; y <= MaxY; y++)
@@ -547,7 +547,7 @@ void cChunkDesc::RandomFillRelCuboid(
 	int MinY = std::max(a_MinY, 0);
 	int MinZ = std::max(a_MinZ, 0);
 	int MaxX = std::min(a_MaxX, cChunkDef::Width - 1);
-	int MaxY = std::min(a_MaxY, cChunkDef::Height - 1);
+	int MaxY = std::min(a_MaxY, cChunkDef::UpperLimit - 1);
 	int MaxZ = std::min(a_MaxZ, cChunkDef::Width - 1);
 
 	for (int y = MinY; y <= MaxY; y++)
@@ -616,7 +616,7 @@ void cChunkDesc::UpdateHeightmap(void)
 		for (int z = 0; z < cChunkDef::Width; z++)
 		{
 			HEIGHTTYPE Height = 0;
-			for (HEIGHTTYPE y = cChunkDef::Height - 1; y > 0; y--)
+			for (HEIGHTTYPE y = cChunkDef::UpperLimit - 1; y > cChunkDef::LowerLimit; y--)
 			{
 				BLOCKTYPE BlockType = GetBlockType(x, y, z);
 				if (BlockType != E_BLOCK_AIR)
@@ -655,7 +655,7 @@ void cChunkDesc::VerifyHeightmap(void)
 	{
 		for (int z = 0; z < cChunkDef::Width; z++)
 		{
-			for (int y = cChunkDef::Height - 1; y > 0; y--)
+			for (int y = cChunkDef::UpperLimit - 1; y > cChunkDef::LowerLimit; y--)
 			{
 				BLOCKTYPE BlockType = GetBlockType(x, y, z);
 				if (BlockType != E_BLOCK_AIR)

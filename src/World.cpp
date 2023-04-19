@@ -153,7 +153,7 @@ cWorld::cWorld(
 	m_Dimension(a_Dimension),
 	m_IsSpawnExplicitlySet(false),
 	m_SpawnX(0),
-	m_SpawnY(cChunkDef::Height),
+	m_SpawnY(cChunkDef::UpperLimit),
 	m_SpawnZ(0),
 	m_BroadcastDeathMessages(true),
 	m_BroadcastAchievementMessages(true),
@@ -726,7 +726,7 @@ void cWorld::GenerateRandomSpawn(int a_MaxSpawnRadius)
 	}
 
 	// Check 0, 0 first.
-	int SpawnY = 0;
+	int SpawnY = cChunkDef::LowerLimit;
 	if (CanSpawnAt(BiomeOffset.x, SpawnY, BiomeOffset.z))
 	{
 		SetSpawn(BiomeOffset.x, SpawnY, BiomeOffset.z);
