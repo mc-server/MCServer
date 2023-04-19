@@ -34,7 +34,7 @@ void cPainting::SpawnOn(cClientHandle & a_Client)
 
 void cPainting::GetDrops(cItems & a_Items, cEntity * a_Killer)
 {
-	a_Items.emplace_back(E_ITEM_PAINTING);
+	a_Items.emplace_back(Item::Painting);
 }
 
 

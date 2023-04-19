@@ -14,6 +14,8 @@
 #include "../Chunk.h"
 #include "Player.h"
 #include "../BoundingBox.h"
+#include "../Blocks/ChunkInterface.h"
+#include "../Blocks/BlockRail.h"
 #include "../UI/MinecartWithChestWindow.h"
 
 #define NO_SPEED 0.0
@@ -167,11 +169,11 @@ void cMinecart::HandlePhysics(std::chrono::milliseconds a_Dt, cChunk & a_Chunk)
 		return;
 	}
 
-	auto relPos = cChunkDef::AbsoluteToRelative(GetPosition());
-	auto chunk = a_Chunk.GetRelNeighborChunkAdjustCoords(relPos);
-	if (chunk == nullptr)
+	auto RelPos = cChunkDef::AbsoluteToRelative(GetPosition());
+	auto Chunk = a_Chunk.GetRelNeighborChunkAdjustCoords(RelPos);
+	if (Chunk == nullptr)
 	{
-		// Inside an unloaded chunk, bail out all processing
+		// Inside an unloaded Chunk, bail out all processing
 		return;
 	}
 
@@ -190,11 +192,12 @@ void cMinecart::HandlePhysics(std::chrono::milliseconds a_Dt, cChunk & a_Chunk)
 	NIBBLETYPE InsideMeta;
 	chunk->GetBlockTypeMeta(relPos, InsideType, InsideMeta);
 
-	if (!IsBlockRail(InsideType))
+	auto ContainedBlock = Chunk->GetBlock(RelPos);
+	if (!cBlockRailHandler::IsBlockRail(ContainedBlock))
 	{
 		// When a descending minecart hits a flat rail, it goes through the ground; check for this
-		chunk->GetBlockTypeMeta(relPos.addedY(1), InsideType, InsideMeta);
-		if (IsBlockRail(InsideType))
+		auto BlockAbove = Chunk->GetBlock(RelPos.addedY(1));
+		if (cBlockRailHandler::IsBlockRail(BlockAbove))
 		{
 			// Push cart upwards
 			AddPosY(1);
@@ -202,8 +205,8 @@ void cMinecart::HandlePhysics(std::chrono::milliseconds a_Dt, cChunk & a_Chunk)
 		else
 		{
 			// When a minecart gets to a descending rail, it should go down.
-			chunk->GetBlockTypeMeta(relPos.addedY(-1), InsideType, InsideMeta);
-			if (IsBlockRail(InsideType))
+			auto BlockBelow = Chunk->GetBlock(RelPos.addedY(-1));
+			if (cBlockRailHandler::IsBlockRail(BlockBelow))
 			{
 				// Push cart downwards
 				AddPosY(-1);
@@ -211,27 +214,27 @@ void cMinecart::HandlePhysics(std::chrono::milliseconds a_Dt, cChunk & a_Chunk)
 		}
 	}
 
-	if (IsBlockRail(InsideType))
+	if (cBlockRailHandler::IsBlockRail(InsideType))
 	{
-		if (InsideType == E_BLOCK_RAIL)
+		if (ContainedBlock.Type() == BlockType::Rail)
 		{
-			SnapToRail(InsideMeta);
+			SnapToRail(ContainedBlock);
 		}
 		else
 		{
-			SnapToRail(InsideMeta & 0x07);
+			SnapToRail(ContainedBlock);
 		}
 
-		switch (InsideType)
+		switch (ContainedBlock.Type())
 		{
-			case E_BLOCK_RAIL: HandleRailPhysics(InsideMeta, a_Dt); break;
-			case E_BLOCK_ACTIVATOR_RAIL: HandleActivatorRailPhysics(InsideMeta, a_Dt); break;
-			case E_BLOCK_POWERED_RAIL: HandlePoweredRailPhysics(InsideMeta); break;
-			case E_BLOCK_DETECTOR_RAIL:
+			case BlockType::Rail: HandleRailPhysics(ContainedBlock, a_Dt); break;
+			case BlockType::ActivatorRail: HandleActivatorRailPhysics(InsideMeta, a_Dt); break;
+			case BlockType::PoweredRail: HandlePoweredRailPhysics(ContainedBlock); break;
+			case BlockType::DetectorRail:
 			{
 				m_DetectorRailPosition = Vector3i(POSX_TOINT, POSY_TOINT, POSZ_TOINT);
 				m_bIsOnDetectorRail = true;
-				HandleDetectorRailPhysics(InsideMeta, a_Dt);
+				HandleDetectorRailPhysics(ContainedBlock, a_Dt);
 				break;
 			}
 			default: VERIFY(!"Unhandled rail type despite checking if block was rail!"); break;
@@ -243,7 +246,7 @@ void cMinecart::HandlePhysics(std::chrono::milliseconds a_Dt, cChunk & a_Chunk)
 	{
 		// Not on rail, default physics
 		SetPosY(floor(GetPosY()) + 0.35);  // HandlePhysics overrides this if minecart can fall, else, it is to stop ground clipping minecart bottom when off-rail
-		Super::HandlePhysics(a_Dt, *chunk);
+		Super::HandlePhysics(a_Dt, *Chunk);
 	}
 
 	// Enforce speed limit:
@@ -257,16 +260,17 @@ void cMinecart::HandlePhysics(std::chrono::milliseconds a_Dt, cChunk & a_Chunk)
 
 
 
-void cMinecart::HandleRailPhysics(NIBBLETYPE a_RailMeta, std::chrono::milliseconds a_Dt)
+void cMinecart::HandleRailPhysics(BlockState a_Rail, std::chrono::milliseconds a_Dt)
 {
 	/*
 	NOTE: Please bear in mind that taking away from negatives make them even more negative,
 	adding to negatives make them positive, etc.
 	*/
 
-	switch (a_RailMeta)
+	using namespace Block;
+	switch (cBlockRailHandler::GetShapeFromRail(a_Rail))
 	{
-		case E_META_RAIL_ZM_ZP:  // NORTHSOUTH
+		case cBlockRailHandler::Shape::NorthSouth:
 		{
 			SetYaw(270);
 			SetPosY(floor(GetPosY()) + 0.55);
@@ -274,9 +278,9 @@ void cMinecart::HandleRailPhysics(NIBBLETYPE a_RailMeta, std::chrono::millisecon
 			SetSpeedX(0);  // Correct diagonal movement from curved rails
 
 			// Execute both the entity and block collision checks
-			auto BlckCol = TestBlockCollision(a_RailMeta);
-			auto EntCol = TestEntityCollision(a_RailMeta);
-			if (EntCol || BlckCol)
+			auto BlockCollision = TestBlockCollision(a_Rail);
+			auto EntityCollision = TestEntityCollision(a_Rail);
+			if (EntityCollision || BlockCollision)
 			{
 				return;
 			}
@@ -297,16 +301,16 @@ void cMinecart::HandleRailPhysics(NIBBLETYPE a_RailMeta, std::chrono::millisecon
 
 			return;
 		}
-		case E_META_RAIL_XM_XP:  // EASTWEST
+		case cBlockRailHandler::Shape::EastWest:
 		{
 			SetYaw(180);
 			SetPosY(floor(GetPosY()) + 0.55);
 			SetSpeedY(NO_SPEED);
 			SetSpeedZ(NO_SPEED);
 
-			auto BlckCol = TestBlockCollision(a_RailMeta);
-			auto EntCol = TestEntityCollision(a_RailMeta);
-			if (EntCol || BlckCol)
+			auto BlockCollision = TestBlockCollision(a_Rail);
+			auto EntityCollision = TestEntityCollision(a_Rail);
+			if (EntityCollision || BlockCollision)
 			{
 				return;
 			}
@@ -325,14 +329,14 @@ void cMinecart::HandleRailPhysics(NIBBLETYPE a_RailMeta, std::chrono::millisecon
 
 			return;
 		}
-		case E_META_RAIL_ASCEND_ZM:  // ASCEND NORTH
+		case cBlockRailHandler::Shape::AscendingNorth:
 		{
 			SetYaw(270);
 			SetSpeedX(0);
 
-			auto BlckCol = TestBlockCollision(a_RailMeta);
-			auto EntCol = TestEntityCollision(a_RailMeta);
-			if (EntCol || BlckCol)
+			auto BlockCollision = TestBlockCollision(a_Rail);
+			auto EntityCollision = TestEntityCollision(a_Rail);
+			if (EntityCollision || BlockCollision)
 			{
 				return;
 			}
@@ -352,14 +356,14 @@ void cMinecart::HandleRailPhysics(NIBBLETYPE a_RailMeta, std::chrono::millisecon
 
 			return;
 		}
-		case E_META_RAIL_ASCEND_ZP:  // ASCEND SOUTH
+		case cBlockRailHandler::Shape::AscendingSouth:
 		{
 			SetYaw(270);
 			SetSpeedX(0);
 
-			auto BlckCol = TestBlockCollision(a_RailMeta);
-			auto EntCol = TestEntityCollision(a_RailMeta);
-			if (EntCol || BlckCol)
+			auto BlockCollision = TestBlockCollision(a_Rail);
+			auto EntityCollision = TestEntityCollision(a_Rail);
+			if (EntityCollision || BlockCollision)
 			{
 				return;
 			}
@@ -379,14 +383,14 @@ void cMinecart::HandleRailPhysics(NIBBLETYPE a_RailMeta, std::chrono::millisecon
 
 			return;
 		}
-		case E_META_RAIL_ASCEND_XM:  // ASCEND EAST
+		case cBlockRailHandler::Shape::AscendingEast:
 		{
 			SetYaw(180);
 			SetSpeedZ(NO_SPEED);
 
-			auto BlckCol = TestBlockCollision(a_RailMeta);
-			auto EntCol = TestEntityCollision(a_RailMeta);
-			if (EntCol || BlckCol)
+			auto BlockCollision = TestBlockCollision(a_Rail);
+			auto EntityCollision = TestEntityCollision(a_Rail);
+			if (EntityCollision || BlockCollision)
 			{
 				return;
 			}
@@ -404,14 +408,14 @@ void cMinecart::HandleRailPhysics(NIBBLETYPE a_RailMeta, std::chrono::millisecon
 
 			return;
 		}
-		case E_META_RAIL_ASCEND_XP:  // ASCEND WEST
+		case cBlockRailHandler::Shape::AscendingWest:
 		{
 			SetYaw(180);
 			SetSpeedZ(0);
 
-			auto BlckCol = TestBlockCollision(a_RailMeta);
-			auto EntCol = TestEntityCollision(a_RailMeta);
-			if (EntCol || BlckCol)
+			auto BlockCollision = TestBlockCollision(a_Rail);
+			auto EntityCollision = TestEntityCollision(a_Rail);
+			if (EntityCollision || BlockCollision)
 			{
 				return;
 			}
@@ -429,15 +433,15 @@ void cMinecart::HandleRailPhysics(NIBBLETYPE a_RailMeta, std::chrono::millisecon
 
 			return;
 		}
-		case E_META_RAIL_CURVED_ZM_XM:  // Ends pointing NORTH and WEST
+		case cBlockRailHandler::Shape::NorthWest:
 		{
 			SetYaw(315);  // Set correct rotation server side
 			SetPosY(floor(GetPosY()) + 0.55);  // Levitate dat cart
 			SetSpeedY(0);
 
-			auto BlckCol = TestBlockCollision(a_RailMeta);
-			auto EntCol = TestEntityCollision(a_RailMeta);
-			if (EntCol || BlckCol)
+			auto BlockCollision = TestBlockCollision(a_Rail);
+			auto EntityCollision = TestEntityCollision(a_Rail);
+			if (EntityCollision || BlockCollision)
 			{
 				return;
 			}
@@ -446,51 +450,52 @@ void cMinecart::HandleRailPhysics(NIBBLETYPE a_RailMeta, std::chrono::millisecon
 
 			return;
 		}
-		case E_META_RAIL_CURVED_ZM_XP:  // Curved NORTH EAST
+		case cBlockRailHandler::Shape::NorthEast:
 		{
 			SetYaw(225);
 			SetPosY(floor(GetPosY()) + 0.55);
 			SetSpeedY(0);
 
-			auto BlckCol = TestBlockCollision(a_RailMeta);
-			auto EntCol = TestEntityCollision(a_RailMeta);
-			if (EntCol || BlckCol)
+			auto BlockCollision = TestBlockCollision(a_Rail);
+			auto EntityCollision = TestEntityCollision(a_Rail);
+			if (EntityCollision || BlockCollision)
 			{
 				return;
 			}
 
 			return;
 		}
-		case E_META_RAIL_CURVED_ZP_XM:  // Curved SOUTH WEST
+		case cBlockRailHandler::Shape::SouthWest:
 		{
 			SetYaw(135);
 			SetPosY(floor(GetPosY()) + 0.55);
 			SetSpeedY(0);
 
-			auto BlckCol = TestBlockCollision(a_RailMeta);
-			auto EntCol = TestEntityCollision(a_RailMeta);
-			if (EntCol || BlckCol)
+			auto BlockCollision = TestBlockCollision(a_Rail);
+			auto EntityCollision = TestEntityCollision(a_Rail);
+			if (EntityCollision || BlockCollision)
 			{
 				return;
 			}
 
 			return;
 		}
-		case E_META_RAIL_CURVED_ZP_XP:  // Curved SOUTH EAST
+		case cBlockRailHandler::Shape::SouthEast:
 		{
 			SetYaw(45);
 			SetPosY(floor(GetPosY()) + 0.55);
 			SetSpeedY(0);
 
-			auto BlckCol = TestBlockCollision(a_RailMeta);
-			auto EntCol = TestEntityCollision(a_RailMeta);
-			if (EntCol || BlckCol)
+			auto BlockCollision = TestBlockCollision(a_Rail);
+			auto EntityCollision = TestEntityCollision(a_Rail);
+			if (EntityCollision || BlockCollision)
 			{
 				return;
 			}
 
 			return;
 		}
+		default: return;
 	}
 	UNREACHABLE("Unsupported rail meta type");
 }
@@ -499,23 +504,30 @@ void cMinecart::HandleRailPhysics(NIBBLETYPE a_RailMeta, std::chrono::millisecon
 
 
 
-void cMinecart::HandlePoweredRailPhysics(NIBBLETYPE a_RailMeta)
+void cMinecart::HandlePoweredRailPhysics(BlockState a_Rail)
 {
+	if (a_Rail.Type() != BlockType::PoweredRail)
+	{
+		return;
+	}
+
+	using namespace Block;
+
 	// If the rail is powered set to speed up else slow down.
-	const bool IsRailPowered = ((a_RailMeta & 0x8) == 0x8);
+	const bool IsRailPowered = PoweredRail::Powered(a_Rail);
 	const double Acceleration = IsRailPowered ? 1.0 : -2.0;
 
-	switch (a_RailMeta & 0x07)
+	switch (PoweredRail::Shape(a_Rail))
 	{
-		case E_META_RAIL_ZM_ZP:  // NORTHSOUTH
+		case PoweredRail::Shape::NorthSouth:
 		{
 			SetYaw(270);
 			SetPosY(floor(GetPosY()) + 0.55);
 			SetSpeedY(0);
 			SetSpeedX(0);
 
-			bool BlckCol = TestBlockCollision(a_RailMeta), EntCol = TestEntityCollision(a_RailMeta);
-			if (EntCol || BlckCol)
+			bool BlockCollision = TestBlockCollision(a_Rail), EntityCollision = TestEntityCollision(a_Rail);
+			if (EntityCollision || BlockCollision)
 			{
 				return;
 			}
@@ -548,15 +560,15 @@ void cMinecart::HandlePoweredRailPhysics(NIBBLETYPE a_RailMeta)
 			}
 			break;
 		}
-		case E_META_RAIL_XM_XP:  // EASTWEST
+		case PoweredRail::Shape::EastWest:
 		{
 			SetYaw(180);
 			SetPosY(floor(GetPosY()) + 0.55);
 			SetSpeedY(NO_SPEED);
 			SetSpeedZ(NO_SPEED);
 
-			bool BlckCol = TestBlockCollision(a_RailMeta), EntCol = TestEntityCollision(a_RailMeta);
-			if (EntCol || BlckCol)
+			bool BlockCollision = TestBlockCollision(a_Rail), EntityCollision = TestEntityCollision(a_Rail);
+			if (EntityCollision || BlockCollision)
 			{
 				return;
 			}
@@ -589,7 +601,7 @@ void cMinecart::HandlePoweredRailPhysics(NIBBLETYPE a_RailMeta)
 			}
 			break;
 		}
-		case E_META_RAIL_ASCEND_XM:  // ASCEND EAST
+		case PoweredRail::Shape::AscendingEast:
 		{
 			SetYaw(180);
 			SetSpeedZ(NO_SPEED);
@@ -606,7 +618,7 @@ void cMinecart::HandlePoweredRailPhysics(NIBBLETYPE a_RailMeta)
 			}
 			break;
 		}
-		case E_META_RAIL_ASCEND_XP:  // ASCEND WEST
+		case PoweredRail::Shape::AscendingWest:
 		{
 			SetYaw(180);
 			SetSpeedZ(NO_SPEED);
@@ -623,7 +635,7 @@ void cMinecart::HandlePoweredRailPhysics(NIBBLETYPE a_RailMeta)
 			}
 			break;
 		}
-		case E_META_RAIL_ASCEND_ZM:  // ASCEND NORTH
+		case PoweredRail::Shape::AscendingNorth:
 		{
 			SetYaw(270);
 			SetSpeedX(NO_SPEED);
@@ -640,7 +652,7 @@ void cMinecart::HandlePoweredRailPhysics(NIBBLETYPE a_RailMeta)
 			}
 			break;
 		}
-		case E_META_RAIL_ASCEND_ZP:  // ASCEND SOUTH
+		case PoweredRail::Shape::AscendingSouth:
 		{
 			SetYaw(270);
 			SetSpeedX(NO_SPEED);
@@ -657,7 +669,6 @@ void cMinecart::HandlePoweredRailPhysics(NIBBLETYPE a_RailMeta)
 			}
 			break;
 		}
-		default: ASSERT(!"Unhandled powered rail metadata!"); break;
 	}
 }
 
@@ -665,21 +676,22 @@ void cMinecart::HandlePoweredRailPhysics(NIBBLETYPE a_RailMeta)
 
 
 
-void cMinecart::HandleDetectorRailPhysics(NIBBLETYPE a_RailMeta, std::chrono::milliseconds a_Dt)
+void cMinecart::HandleDetectorRailPhysics(BlockState a_Rail, std::chrono::milliseconds a_Dt)
 {
-	m_World->SetBlockMeta(m_DetectorRailPosition, a_RailMeta | 0x08);
+	using namespace Block;
+	m_World->SetBlock(m_DetectorRailPosition, DetectorRail::DetectorRail(true, DetectorRail::Shape(a_Rail)));
 
 	// No special handling
-	HandleRailPhysics(a_RailMeta & 0x07, a_Dt);
+	HandleRailPhysics(a_Rail, a_Dt);
 }
 
 
 
 
 
-void cMinecart::HandleActivatorRailPhysics(NIBBLETYPE a_RailMeta, std::chrono::milliseconds a_Dt)
+void cMinecart::HandleActivatorRailPhysics(BlockState a_Rail, std::chrono::milliseconds a_Dt)
 {
-	HandleRailPhysics(a_RailMeta & 0x07, a_Dt);
+	m_World->SetBlock(m_DetectorRailPosition, Block::ActivatorRail::ActivatorRail(true, ActivatorRail::Shape(a_Rail)));
 	// TODO - shake minecart, throw entities out
 }
 
@@ -687,28 +699,28 @@ void cMinecart::HandleActivatorRailPhysics(NIBBLETYPE a_RailMeta, std::chrono::m
 
 
 
-void cMinecart::SnapToRail(NIBBLETYPE a_RailMeta)
+void cMinecart::SnapToRail(BlockState a_Rail)
 {
-	switch (a_RailMeta)
+	switch (cBlockRailHandler::GetShapeFromRail(a_Rail))
 	{
-		case E_META_RAIL_ASCEND_XM:
-		case E_META_RAIL_ASCEND_XP:
-		case E_META_RAIL_XM_XP:
+		case cBlockRailHandler::Shape::AscendingWest:
+		case cBlockRailHandler::Shape::AscendingEast:
+		case cBlockRailHandler::Shape::EastWest:
 		{
 			SetSpeedZ(NO_SPEED);
 			SetPosZ(floor(GetPosZ()) + 0.5);
 			break;
 		}
-		case E_META_RAIL_ASCEND_ZM:
-		case E_META_RAIL_ASCEND_ZP:
-		case E_META_RAIL_ZM_ZP:
+		case cBlockRailHandler::Shape::AscendingNorth:
+		case cBlockRailHandler::Shape::AscendingSouth:
+		case cBlockRailHandler::Shape::NorthSouth:
 		{
 			SetSpeedX(NO_SPEED);
 			SetPosX(floor(GetPosX()) + 0.5);
 			break;
 		}
 		// Curved rail physics: once minecart has reached more than half of the block in the direction that it is travelling in, jerk it in the direction of curvature
-		case E_META_RAIL_CURVED_ZM_XM:
+		case cBlockRailHandler::Shape::NorthWest:
 		{
 			if (GetPosZ() > floor(GetPosZ()) + 0.5)
 			{
@@ -733,7 +745,7 @@ void cMinecart::SnapToRail(NIBBLETYPE a_RailMeta)
 			SetSpeedY(NO_SPEED);
 			break;
 		}
-		case E_META_RAIL_CURVED_ZM_XP:
+		case cBlockRailHandler::Shape::NorthEast:
 		{
 			if (GetPosZ() > floor(GetPosZ()) + 0.5)
 			{
@@ -758,7 +770,7 @@ void cMinecart::SnapToRail(NIBBLETYPE a_RailMeta)
 			SetSpeedY(NO_SPEED);
 			break;
 		}
-		case E_META_RAIL_CURVED_ZP_XM:
+		case cBlockRailHandler::Shape::SouthWest:
 		{
 			if (GetPosZ() < floor(GetPosZ()) + 0.5)
 			{
@@ -783,7 +795,7 @@ void cMinecart::SnapToRail(NIBBLETYPE a_RailMeta)
 			SetSpeedY(NO_SPEED);
 			break;
 		}
-		case E_META_RAIL_CURVED_ZP_XP:
+		case cBlockRailHandler::Shape::SouthEast:
 		{
 			if (GetPosZ() < floor(GetPosZ()) + 0.5)
 			{
@@ -818,8 +830,8 @@ void cMinecart::SnapToRail(NIBBLETYPE a_RailMeta)
 
 bool cMinecart::IsSolidBlockAtPosition(Vector3i a_Pos)
 {
-	BLOCKTYPE Block = m_World->GetBlock(a_Pos);
-	return !IsBlockRail(Block) && cBlockInfo::IsSolid(Block);
+	auto Block = m_World->GetBlock(a_Pos);
+	return !cBlockRailHandler::IsBlockRail(Block) && cBlockInfo::IsSolid(Block);
 }
 
 
@@ -855,7 +867,7 @@ bool cMinecart::IsBlockCollisionAtOffset(Vector3i a_Offset)
 
 
 
-bool cMinecart::TestBlockCollision(NIBBLETYPE a_RailMeta)
+bool cMinecart::TestBlockCollision(BlockState a_Rail)
 {
 	auto SpeedX = GetSpeedX();
 	auto SpeedZ = GetSpeedZ();
@@ -878,9 +890,9 @@ bool cMinecart::TestBlockCollision(NIBBLETYPE a_RailMeta)
 	auto StopTheCart = true;
 	auto StopOffset = Vector3d();
 
-	switch (a_RailMeta)
+	switch (cBlockRailHandler::GetShapeFromRail(a_Rail))
 	{
-		case E_META_RAIL_ZM_ZP:
+		case cBlockRailHandler::Shape::NorthSouth:
 		{
 			if (SpeedZ > 0)
 			{
@@ -894,7 +906,7 @@ bool cMinecart::TestBlockCollision(NIBBLETYPE a_RailMeta)
 			}
 			break;
 		}
-		case E_META_RAIL_XM_XP:
+		case cBlockRailHandler::Shape::EastWest:
 		{
 			if (SpeedX > 0)
 			{
@@ -910,7 +922,7 @@ bool cMinecart::TestBlockCollision(NIBBLETYPE a_RailMeta)
 		}
 
 		// Ascending rails check for one block on the way up, two on the way down.
-		case E_META_RAIL_ASCEND_XM:
+		case cBlockRailHandler::Shape::AscendingWest:
 		{
 			StopOffset = Vector3d(0.5, 0, 0);
 
@@ -924,7 +936,7 @@ bool cMinecart::TestBlockCollision(NIBBLETYPE a_RailMeta)
 			}
 			break;
 		}
-		case E_META_RAIL_ASCEND_XP:
+		case cBlockRailHandler::Shape::AscendingEast:
 		{
 			StopOffset = Vector3d(0.5, 0, 0);
 
@@ -938,7 +950,7 @@ bool cMinecart::TestBlockCollision(NIBBLETYPE a_RailMeta)
 			}
 			break;
 		}
-		case E_META_RAIL_ASCEND_ZM:
+		case cBlockRailHandler::Shape::AscendingNorth:
 		{
 			StopOffset = Vector3d(0, 0, 0.5);
 
@@ -952,7 +964,7 @@ bool cMinecart::TestBlockCollision(NIBBLETYPE a_RailMeta)
 			}
 			break;
 		}
-		case E_META_RAIL_ASCEND_ZP:
+		case cBlockRailHandler::Shape::AscendingSouth:
 		{
 			StopOffset = Vector3d(0, 0, 0.5);
 
@@ -970,7 +982,7 @@ bool cMinecart::TestBlockCollision(NIBBLETYPE a_RailMeta)
 		// Curved rails allow movement across both the x and z axes. But when the cart is
 		// moving towards one of the rail endpoints, it will always have velocity towards
 		// the direction of that endpoint in the same axis.
-		case E_META_RAIL_CURVED_ZP_XP:
+		case cBlockRailHandler::Shape::SouthEast:
 		{
 			StopOffset = Vector3d(0.5, 0, 0.5);
 
@@ -987,7 +999,7 @@ bool cMinecart::TestBlockCollision(NIBBLETYPE a_RailMeta)
 
 			break;
 		}
-		case E_META_RAIL_CURVED_ZP_XM:
+		case cBlockRailHandler::Shape::SouthWest:
 		{
 			StopOffset = Vector3d(0.5, 0, 0.5);
 
@@ -1004,7 +1016,7 @@ bool cMinecart::TestBlockCollision(NIBBLETYPE a_RailMeta)
 
 			break;
 		}
-		case E_META_RAIL_CURVED_ZM_XM:
+		case cBlockRailHandler::Shape::NorthWest:
 		{
 			StopOffset = Vector3d(0.5, 0, 0.5);
 
@@ -1021,7 +1033,7 @@ bool cMinecart::TestBlockCollision(NIBBLETYPE a_RailMeta)
 
 			break;
 		}
-		case E_META_RAIL_CURVED_ZM_XP:
+		case cBlockRailHandler::Shape::NorthEast:
 		{
 			StopOffset = Vector3d(0.5, 0, 0.5);
 
@@ -1035,9 +1047,9 @@ bool cMinecart::TestBlockCollision(NIBBLETYPE a_RailMeta)
 				StopTheCart = IsBlockCollisionAtOffset({1, 0, 0});
 				break;
 			}
-
 			break;
 		}
+		default: break;
 	}
 
 	if (StopTheCart)
@@ -1072,7 +1084,7 @@ bool cMinecart::TestBlockCollision(NIBBLETYPE a_RailMeta)
 
 
 
-bool cMinecart::TestEntityCollision(NIBBLETYPE a_RailMeta)
+bool cMinecart::TestEntityCollision(BlockState a_Rail)
 {
 	cMinecartCollisionCallback MinecartCollisionCallback(
 		GetPosition(), GetHeight(), GetWidth(), GetUniqueID(),
@@ -1093,9 +1105,9 @@ bool cMinecart::TestEntityCollision(NIBBLETYPE a_RailMeta)
 	cBoundingBox bbMinecart(Vector3d(MinecartPosition.x, floor(MinecartPosition.y), MinecartPosition.z), GetWidth() / 2, GetHeight());
 	m_World->ForEachEntityInBox(bbMinecart, MinecartAttachCallback);
 
-	switch (a_RailMeta)
+	switch (cBlockRailHandler::GetShapeFromRail(a_Rail))
 	{
-		case E_META_RAIL_ZM_ZP:
+		case cBlockRailHandler::Shape::NorthSouth:
 		{
 			if (MinecartCollisionCallback.GetCollidedEntityPosition().z >= GetPosZ())
 			{
@@ -1113,7 +1125,7 @@ bool cMinecart::TestEntityCollision(NIBBLETYPE a_RailMeta)
 			}
 			return true;
 		}
-		case E_META_RAIL_XM_XP:
+		case cBlockRailHandler::Shape::EastWest:
 		{
 			if (MinecartCollisionCallback.GetCollidedEntityPosition().x >= GetPosX())
 			{
@@ -1131,8 +1143,8 @@ bool cMinecart::TestEntityCollision(NIBBLETYPE a_RailMeta)
 			}
 			return true;
 		}
-		case E_META_RAIL_CURVED_ZM_XM:
-		case E_META_RAIL_CURVED_ZP_XP:
+		case cBlockRailHandler::Shape::NorthWest:
+		case cBlockRailHandler::Shape::SouthEast:
 		{
 			Vector3d Distance = MinecartCollisionCallback.GetCollidedEntityPosition() - Vector3d(GetPosX(), 0, GetPosZ());
 
@@ -1180,8 +1192,8 @@ bool cMinecart::TestEntityCollision(NIBBLETYPE a_RailMeta)
 			}
 			break;
 		}
-		case E_META_RAIL_CURVED_ZM_XP:
-		case E_META_RAIL_CURVED_ZP_XM:
+		case cBlockRailHandler::Shape::NorthEast:
+		case cBlockRailHandler::Shape::SouthWest:
 		{
 			Vector3d Distance = MinecartCollisionCallback.GetCollidedEntityPosition() - Vector3d(GetPosX(), 0, GetPosZ());
 
@@ -1278,7 +1290,7 @@ void cMinecart::OnRemoveFromWorld(cWorld & a_World)
 {
 	if (m_bIsOnDetectorRail)
 	{
-		m_World->SetBlock(m_DetectorRailPosition, E_BLOCK_DETECTOR_RAIL, m_World->GetBlockMeta(m_DetectorRailPosition) & 0x07);
+		m_World->SetBlock(m_DetectorRailPosition, Block::DetectorRail::DetectorRail(false, Block::DetectorRail::Shape(m_World->GetBlock(m_DetectorRailPosition))));
 	}
 
 	Super::OnRemoveFromWorld(a_World);
@@ -1324,7 +1336,7 @@ cRideableMinecart::cRideableMinecart(Vector3d a_Pos, const cItem & a_Content, in
 
 void cRideableMinecart::GetDrops(cItems & a_Drops, cEntity * a_Killer)
 {
-	a_Drops.emplace_back(E_ITEM_MINECART);
+	a_Drops.emplace_back(Item::Minecart);
 }
 
 
@@ -1380,7 +1392,7 @@ cMinecartWithChest::cMinecartWithChest(Vector3d a_Pos):
 void cMinecartWithChest::GetDrops(cItems & a_Drops, cEntity * a_Killer)
 {
 	m_Contents.CopyToItems(a_Drops);
-	a_Drops.emplace_back(E_ITEM_CHEST_MINECART);
+	a_Drops.emplace_back(Item::ChestMinecart);
 }
 
 
@@ -1451,7 +1463,7 @@ cMinecartWithFurnace::cMinecartWithFurnace(Vector3d a_Pos):
 
 void cMinecartWithFurnace::GetDrops(cItems & a_Drops, cEntity * a_Killer)
 {
-	a_Drops.emplace_back(E_ITEM_FURNACE_MINECART);
+	a_Drops.emplace_back(Item::FurnaceMinecart);
 }
 
 
@@ -1460,7 +1472,7 @@ void cMinecartWithFurnace::GetDrops(cItems & a_Drops, cEntity * a_Killer)
 
 void cMinecartWithFurnace::OnRightClicked(cPlayer & a_Player)
 {
-	if (a_Player.GetEquippedItem().m_ItemType == E_ITEM_COAL)
+	if (a_Player.GetEquippedItem().m_ItemType == Item::Coal)
 	{
 		if (!a_Player.IsGameModeCreative())
 		{
@@ -1542,7 +1554,7 @@ void cMinecartWithTNT::HandleActivatorRailPhysics(NIBBLETYPE a_RailMeta, std::ch
 
 void cMinecartWithTNT::GetDrops(cItems & a_Drops, cEntity * a_Killer)
 {
-	a_Drops.emplace_back(E_ITEM_MINECART_WITH_TNT);
+	a_Drops.emplace_back(Item::TNTMinecart);
 }
 
 
@@ -1592,5 +1604,5 @@ cMinecartWithHopper::cMinecartWithHopper(Vector3d a_Pos):
 
 void cMinecartWithHopper::GetDrops(cItems & a_Drops, cEntity * a_Killer)
 {
-	a_Drops.emplace_back(E_ITEM_MINECART_WITH_HOPPER);
+	a_Drops.emplace_back(Item::HopperMinecart);
 }

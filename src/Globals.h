@@ -393,3 +393,6 @@ auto ToUnsigned(T a_Val)
 
 // Common headers (part 2, with macros):
 #include "Vector3.h"
+#include "BlockState.h"
+#include "Registries/BlockStates.h"
+#include "Registries/Items.h"

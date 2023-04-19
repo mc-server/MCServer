@@ -53,7 +53,7 @@ Implements the 1.14 protocol classes:
 ////////////////////////////////////////////////////////////////////////////////
 // cProtocol_1_14:
 
-void cProtocol_1_14::SendBlockAction(Vector3i a_BlockPos, char a_Byte1, char a_Byte2, BLOCKTYPE a_BlockType)
+void cProtocol_1_14::SendBlockAction(Vector3i a_BlockPos, char a_Byte1, char a_Byte2, BlockState a_Block)
 {
 	ASSERT(m_State == 3);  // In game mode?
 
@@ -645,18 +645,18 @@ UInt8 cProtocol_1_14::GetEntityMetadataID(EntityMetadata a_Metadata) const
 
 
 
-std::pair<short, short> cProtocol_1_14::GetItemFromProtocolID(UInt32 a_ProtocolID) const
+Item cProtocol_1_14::GetItemFromProtocolID(UInt32 a_ProtocolID) const
 {
-	return PaletteUpgrade::ToItem(Palette_1_14::ToItem(a_ProtocolID));
+	return Palette_1_14::ToItem(a_ProtocolID);
 }
 
 
 
 
 
-UInt32 cProtocol_1_14::GetProtocolBlockType(BLOCKTYPE a_BlockType, NIBBLETYPE a_Meta) const
+UInt32 cProtocol_1_14::GetProtocolBlockType(BlockState a_Block) const
 {
-	return Palette_1_14::From(PaletteUpgrade::FromBlock(a_BlockType, a_Meta));
+	return Palette_1_14::From(a_Block);
 }
 
 
@@ -740,9 +740,9 @@ UInt8 cProtocol_1_14::GetProtocolEntityType(const cEntity & a_Entity) const
 
 
 
-UInt32 cProtocol_1_14::GetProtocolItemType(short a_ItemID, short a_ItemDamage) const
+UInt32 cProtocol_1_14::GetProtocolItemType(Item a_ItemID) const
 {
-	return Palette_1_14::From(PaletteUpgrade::FromItem(a_ItemID, a_ItemDamage));
+	return Palette_1_14::From(a_ItemID);
 }
 
 

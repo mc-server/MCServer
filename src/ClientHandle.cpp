@@ -1171,7 +1171,7 @@ void cClientHandle::HandleLeftClick(Vector3i a_BlockPos, eBlockFace a_BlockFace,
 					return;
 				}
 				// When bow is in off-hand / shield slot
-				if (m_Player->GetInventory().GetShieldSlot().m_ItemType == E_ITEM_BOW)
+				if (m_Player->GetInventory().GetShieldSlot().m_ItemType == Item::Bow)
 				{
 					m_Player->GetInventory().GetShieldSlot().GetHandler().OnItemShoot(m_Player, a_BlockPos, a_BlockFace);
 				}
@@ -1254,14 +1254,12 @@ void cClientHandle::HandleBlockDigStarted(Vector3i a_BlockPos, eBlockFace a_Bloc
 		return;
 	}
 
-	BLOCKTYPE DiggingBlock;
-	NIBBLETYPE DiggingMeta;
-	m_Player->GetWorld()->GetBlockTypeMeta(a_BlockPos, DiggingBlock, DiggingMeta);
+	auto DiggingBlock = m_Player->GetWorld()->GetBlock(a_BlockPos);
 
 	if (
 		m_Player->IsGameModeCreative() &&
 		ItemCategory::IsSword(m_Player->GetInventory().GetEquippedItem().m_ItemType) &&
-		(DiggingBlock != E_BLOCK_FIRE)
+		(DiggingBlock.Type() != BlockType::Fire)
 	)
 	{
 		// Players can't destroy blocks with a sword in the hand.
@@ -1296,7 +1294,7 @@ void cClientHandle::HandleBlockDigStarted(Vector3i a_BlockPos, eBlockFace a_Bloc
 
 	cWorld * World = m_Player->GetWorld();
 	cChunkInterface ChunkInterface(World->GetChunkMap());
-	cBlockHandler::For(DiggingBlock).OnDigging(ChunkInterface, *World, *m_Player, a_BlockPos);
+	cBlockHandler::For(DiggingBlock.Type()).OnDigging(ChunkInterface, *World, *m_Player, a_BlockPos);
 
 	m_Player->GetEquippedItem().GetHandler().OnDiggingBlock(World, m_Player, m_Player->GetEquippedItem(), a_BlockPos, a_BlockFace);
 }
@@ -1322,9 +1320,7 @@ void cClientHandle::HandleBlockDigFinished(Vector3i a_BlockPos, eBlockFace a_Blo
 
 	FinishDigAnimation();
 
-	BLOCKTYPE DugBlock;
-	NIBBLETYPE DugMeta;
-	m_Player->GetWorld()->GetBlockTypeMeta(a_BlockPos, DugBlock, DugMeta);
+	auto DugBlock = m_Player->GetWorld()->GetBlock(a_BlockPos);
 
 	if (!m_Player->IsGameModeCreative())
 	{
@@ -1344,7 +1340,7 @@ void cClientHandle::HandleBlockDigFinished(Vector3i a_BlockPos, eBlockFace a_Blo
 
 	cWorld * World = m_Player->GetWorld();
 
-	if (cRoot::Get()->GetPluginManager()->CallHookPlayerBreakingBlock(*m_Player, a_BlockPos, a_BlockFace, DugBlock, DugMeta))
+	if (cRoot::Get()->GetPluginManager()->CallHookPlayerBreakingBlock(*m_Player, a_BlockPos, a_BlockFace, DugBlock))
 	{
 		// A plugin doesn't agree with the breaking. Bail out. Send the block back to the client, so that it knows:
 		m_Player->SendBlocksAround(a_BlockPos, 2);
@@ -1352,7 +1348,7 @@ void cClientHandle::HandleBlockDigFinished(Vector3i a_BlockPos, eBlockFace a_Blo
 		return;
 	}
 
-	if (DugBlock == E_BLOCK_AIR)
+	if (IsBlockAir(DugBlock))
 	{
 		return;
 	}
@@ -1374,8 +1370,8 @@ void cClientHandle::HandleBlockDigFinished(Vector3i a_BlockPos, eBlockFace a_Blo
 		World->DigBlock(absPos, m_Player);
 	}
 
-	World->BroadcastSoundParticleEffect(EffectID::PARTICLE_BLOCK_BREAK, absPos, DugBlock, this);
-	cRoot::Get()->GetPluginManager()->CallHookPlayerBrokenBlock(*m_Player, a_BlockPos, a_BlockFace, DugBlock, DugMeta);
+	World->BroadcastSoundParticleEffect(EffectID::PARTICLE_BLOCK_BREAK, absPos, PaletteUpgrade::ToBlock(DugBlock).first, this);
+	cRoot::Get()->GetPluginManager()->CallHookPlayerBrokenBlock(*m_Player, a_BlockPos, a_BlockFace, DugBlock);
 }
 
 
@@ -1438,29 +1434,22 @@ void cClientHandle::HandleRightClick(Vector3i a_BlockPos, eBlockFace a_BlockFace
 
 	if (!PlgMgr->CallHookPlayerRightClick(*m_Player, a_BlockPos, a_BlockFace, a_CursorPos) && IsWithinReach(a_BlockPos) && !m_Player->IsFrozen())
 	{
-		BLOCKTYPE BlockType;
-		NIBBLETYPE BlockMeta;
-
-		if (!World->GetBlockTypeMeta(a_BlockPos, BlockType, BlockMeta))
-		{
-			return;
-		}
-
+		auto ClickedBlock = World->GetBlock(ClickedPosition);
+		const auto & BlockHandler = cBlockHandler::For(ClickedBlock.Type());
 		const auto & ItemHandler = HeldItem.GetHandler();
-		const auto & BlockHandler = cBlockHandler::For(BlockType);
-		const bool BlockUsable = BlockHandler.IsUseable() && (m_Player->IsGameModeSpectator() ? cBlockInfo::IsUseableBySpectator(BlockType) : !(m_Player->IsCrouched() && !HeldItem.IsEmpty()));
+		const bool BlockUsable = BlockHandler.IsUseable() && (m_Player->IsGameModeSpectator() ? cBlockInfo::IsUseableBySpectator(ClickedBlock) : !(m_Player->IsCrouched() && !HeldItem.IsEmpty()));
 		const bool ItemPlaceable = ItemHandler.IsPlaceable() && !m_Player->IsGameModeAdventure() && !m_Player->IsGameModeSpectator();
 		const bool ItemUseable = !m_Player->IsGameModeSpectator();
 
 		if (BlockUsable)
 		{
 			cChunkInterface ChunkInterface(World->GetChunkMap());
-			if (!PlgMgr->CallHookPlayerUsingBlock(*m_Player, a_BlockPos, a_BlockFace, a_CursorPos, BlockType, BlockMeta))
+			if (!PlgMgr->CallHookPlayerUsingBlock(*m_Player, a_BlockPos, a_BlockFace, a_CursorPos, ClickedBlock))
 			{
 				// Use a block:
 				if (BlockHandler.OnUse(ChunkInterface, *World, *m_Player, a_BlockPos, a_BlockFace, a_CursorPos))
 				{
-					PlgMgr->CallHookPlayerUsedBlock(*m_Player, a_BlockPos, a_BlockFace, a_CursorPos, BlockType, BlockMeta);
+					PlgMgr->CallHookPlayerUsedBlock(*m_Player, a_BlockPos, a_BlockFace, a_CursorPos, ClickedBlock);
 					return;  // Block use was successful, we're done.
 				}
 
@@ -1485,7 +1474,7 @@ void cClientHandle::HandleRightClick(Vector3i a_BlockPos, eBlockFace a_BlockFace
 			}
 
 			// Place a block:
-			ItemHandler.OnPlayerPlace(*m_Player, HeldItem, a_BlockPos, BlockType, BlockMeta, a_BlockFace, a_CursorPos);
+			ItemHandler.OnPlayerPlace(*m_Player, HeldItem, a_BlockPos, BlockType, a_BlockFace, a_CursorPos);
 			return;
 		}
 		else if (ItemUseable)
@@ -1855,8 +1844,8 @@ void cClientHandle::HandleUseItem(bool a_UsedMainHand)
 		if (
 			ItemHandler.IsFood() &&
 			(m_Player->IsSatiated() || m_Player->IsGameModeCreative()) &&  // Only non-creative or hungry players can eat
-			(HeldItem.m_ItemType != E_ITEM_GOLDEN_APPLE) &&  // Golden apple is a special case, it is used instead of eaten
-			(HeldItem.m_ItemType != E_ITEM_CHORUS_FRUIT)     // Chorus fruit is a special case, it is used instead of eaten
+			(HeldItem.m_ItemType != Item::GoldenApple) &&  // Golden apple is a special case, it is used instead of eaten
+			(HeldItem.m_ItemType != Item::ChorusFruit)     // Chorus fruit is a special case, it is used instead of eaten
 		)
 		{
 			// The player is satiated or in creative, and trying to eat
@@ -2189,7 +2178,7 @@ void cClientHandle::Tick(std::chrono::milliseconds a_Dt)
 	// anticheat fastbreak
 	if (m_HasStartedDigging)
 	{
-		BLOCKTYPE Block = m_Player->GetWorld()->GetBlock(m_LastDigBlockPos);
+		auto Block = m_Player->GetWorld()->GetBlock(m_LastDigBlockPos);
 		m_BreakProgress += m_Player->GetMiningProgressPerTick(Block);
 	}
 
@@ -2260,9 +2249,9 @@ void cClientHandle::SendUnleashEntity(const cEntity & a_Entity)
 
 
 
-void cClientHandle::SendBlockAction(Vector3i a_BlockPos, char a_Byte1, char a_Byte2, BLOCKTYPE a_BlockType)
+void cClientHandle::SendBlockAction(Vector3i a_BlockPos, char a_Byte1, char a_Byte2, BlockState a_Block)
 {
-	m_Protocol->SendBlockAction(a_BlockPos, a_Byte1, a_Byte2, a_BlockType);
+	m_Protocol->SendBlockAction(a_BlockPos, a_Byte1, a_Byte2, a_Block);
 }
 
 
@@ -2278,7 +2267,7 @@ void cClientHandle::SendBlockBreakAnim(UInt32 a_EntityID, Vector3i a_BlockPos, c
 
 
 
-void cClientHandle::SendBlockChange(Vector3i a_BlockPos, BLOCKTYPE a_BlockType, NIBBLETYPE a_BlockMeta)
+void cClientHandle::SendBlockChange(Vector3i a_BlockPos, BlockState a_Block)
 {
 	auto ChunkCoords = cChunkDef::BlockToChunk(a_BlockPos);
 
@@ -2287,7 +2276,7 @@ void cClientHandle::SendBlockChange(Vector3i a_BlockPos, BLOCKTYPE a_BlockType, 
 	if (std::find(m_SentChunks.begin(), m_SentChunks.end(), ChunkCoords) != m_SentChunks.end())
 	{
 		Lock.Unlock();
-		m_Protocol->SendBlockChange(a_BlockPos, a_BlockType, a_BlockMeta);
+		m_Protocol->SendBlockChange(a_BlockPos, a_Block);
 	}
 }
 
@@ -2312,7 +2301,7 @@ void cClientHandle::SendBlockChanges(int a_ChunkX, int a_ChunkZ, const sSetBlock
 	if (a_Changes.size() == 1)
 	{
 		const auto & Change = a_Changes[0];
-		m_Protocol->SendBlockChange(Change.GetAbsolutePos(), Change.m_BlockType, Change.m_BlockMeta);
+		m_Protocol->SendBlockChange(Change.GetAbsolutePos(), Change.m_Block);
 		return;
 	}
 
