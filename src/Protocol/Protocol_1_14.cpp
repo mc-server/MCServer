@@ -55,7 +55,7 @@ Implements the 1.14 protocol classes:
 ////////////////////////////////////////////////////////////////////////////////
 // cProtocol_1_14:
 
-void cProtocol_1_14::SendBlockAction(Vector3i a_BlockPos, char a_Byte1, char a_Byte2, BLOCKTYPE a_BlockType)
+void cProtocol_1_14::SendBlockAction(Vector3i a_BlockPos, char a_Byte1, char a_Byte2, BlockState a_Block)
 {
 	ASSERT(m_State == 3);  // In game mode?
 
@@ -63,7 +63,7 @@ void cProtocol_1_14::SendBlockAction(Vector3i a_BlockPos, char a_Byte1, char a_B
 	Pkt.WriteXZYPosition64(a_BlockPos);
 	Pkt.WriteBEInt8(a_Byte1);
 	Pkt.WriteBEInt8(a_Byte2);
-	Pkt.WriteVarInt32(a_BlockType);
+	Pkt.WriteVarInt32(Palette_1_14::From(a_Block));
 }
 
 
@@ -84,11 +84,11 @@ void cProtocol_1_14::SendBlockBreakAnim(UInt32 a_EntityID, Vector3i a_BlockPos, 
 
 
 
-void cProtocol_1_14::SendBlockChange(Vector3i a_BlockPos, BLOCKTYPE a_BlockType, NIBBLETYPE a_BlockMeta)
+void cProtocol_1_14::SendBlockChange(Vector3i a_BlockPos, BlockState a_Block)
 {
 	cPacketizer Pkt(*this, pktBlockChange);
 	Pkt.WriteXZYPosition64(a_BlockPos);
-	Pkt.WriteVarInt32(GetProtocolBlockType(a_BlockType, a_BlockMeta));
+	Pkt.WriteVarInt32(GetProtocolBlockType(a_Block));
 }
 
 
@@ -97,6 +97,10 @@ void cProtocol_1_14::SendBlockChange(Vector3i a_BlockPos, BLOCKTYPE a_BlockType,
 
 void cProtocol_1_14::SendEditSign(Vector3i a_BlockPos)
 {
+	{
+		cPacketizer Pkt(*this, pktUpdateSign);
+		Pkt.WriteXZYPosition64(a_BlockPos.x, a_BlockPos.y, a_BlockPos.z);
+	}
 }
 
 
@@ -181,6 +185,32 @@ void cProtocol_1_14::SendLogin(const cPlayer & a_Player, const cWorld & a_World)
 
 void cProtocol_1_14::SendMapData(const cMap & a_Map, int a_DataStartX, int a_DataStartY)
 {
+	{
+		cPacketizer Pkt(*this, pktMapData);
+		Pkt.WriteVarInt32(a_Map.GetID());
+		Pkt.WriteBEUInt8(static_cast<UInt8>(a_Map.GetScale()));
+		Pkt.WriteBool(true);
+		Pkt.WriteBool(false);  // TODO: Implement map locking
+		Pkt.WriteVarInt32(static_cast<UInt32>(a_Map.GetDecorators().size()));
+		for (const auto & Decorator : a_Map.GetDecorators())
+		{
+			Pkt.WriteVarInt32(static_cast<UInt32>(Decorator.GetType()));
+			Pkt.WriteBEUInt8(static_cast<UInt8>(Decorator.GetPixelX()));
+			Pkt.WriteBEUInt8(static_cast<UInt8>(Decorator.GetPixelZ()));
+			Pkt.WriteBEUInt8(static_cast<UInt8>(Decorator.GetRot()));
+			Pkt.WriteBool(false);  // TODO: Implement display names
+		}
+		// TODO: Remove hardcoded values
+		Pkt.WriteBEUInt8(128);
+		Pkt.WriteBEUInt8(128);
+		Pkt.WriteBEUInt8(static_cast<UInt8>(a_DataStartX));
+		Pkt.WriteBEUInt8(static_cast<UInt8>(a_DataStartY));
+		Pkt.WriteVarInt32(static_cast<UInt32>(a_Map.GetData().size()));
+		for (auto itr = a_Map.GetData().cbegin(); itr != a_Map.GetData().cend(); ++itr)
+		{
+			Pkt.WriteBEUInt8(*itr);
+		}
+	}
 }
 
 
@@ -189,6 +219,7 @@ void cProtocol_1_14::SendMapData(const cMap & a_Map, int a_DataStartX, int a_Dat
 
 void cProtocol_1_14::SendPaintingSpawn(const cPainting & a_Painting)
 {
+
 }
 
 
@@ -261,8 +292,9 @@ void cProtocol_1_14::SendSoundParticleEffect(const EffectID a_EffectID, Vector3i
 void cProtocol_1_14::SendUpdateBlockEntity(cBlockEntity & a_BlockEntity)
 {
 	ASSERT(m_State == 3);  // In game mode?
-
-	Byte Action;
+	return;
+	/*
+	Byte Action = 0;
 	switch (a_BlockEntity.GetBlockType())
 	{
 		case E_BLOCK_CHEST:
@@ -301,7 +333,7 @@ void cProtocol_1_14::SendUpdateBlockEntity(cBlockEntity & a_BlockEntity)
 	cFastNBTWriter Writer;
 	WriteBlockEntity(Writer, a_BlockEntity);
 	Writer.Finish();
-	Pkt.WriteBuf(Writer.GetResult());
+	Pkt.WriteBuf(Writer.GetResult()); */
 }
 
 
@@ -647,18 +679,18 @@ UInt8 cProtocol_1_14::GetEntityMetadataID(EntityMetadata a_Metadata) const
 
 
 
-std::pair<short, short> cProtocol_1_14::GetItemFromProtocolID(UInt32 a_ProtocolID) const
+Item cProtocol_1_14::GetItemFromProtocolID(UInt32 a_ProtocolID) const
 {
-	return PaletteUpgrade::ToItem(Palette_1_14::ToItem(a_ProtocolID));
+	return Palette_1_14::ToItem(a_ProtocolID);
 }
 
 
 
 
 
-UInt32 cProtocol_1_14::GetProtocolBlockType(BLOCKTYPE a_BlockType, NIBBLETYPE a_Meta) const
+UInt32 cProtocol_1_14::GetProtocolBlockType(BlockState a_Block) const
 {
-	return Palette_1_14::From(PaletteUpgrade::FromBlock(a_BlockType, a_Meta));
+	return Palette_1_14::From(a_Block);
 }
 
 
@@ -742,9 +774,9 @@ UInt8 cProtocol_1_14::GetProtocolEntityType(const cEntity & a_Entity) const
 
 
 
-UInt32 cProtocol_1_14::GetProtocolItemType(short a_ItemID, short a_ItemDamage) const
+UInt32 cProtocol_1_14::GetProtocolItemType(Item a_ItemID) const
 {
-	return Palette_1_14::From(PaletteUpgrade::FromItem(a_ItemID, a_ItemDamage));
+	return Palette_1_14::From(a_ItemID);
 }
 
 
@@ -970,6 +1002,7 @@ bool cProtocol_1_14::HandlePacket(cByteBuffer & a_ByteBuffer, UInt32 a_PacketTyp
 		case 0x26: HandlePacketCreativeInventoryAction(a_ByteBuffer); return true;
 		case 0x2C: HandlePacketBlockPlace(a_ByteBuffer); return true;
 		case 0x2D: HandlePacketUseItem(a_ByteBuffer); return true;
+		case 0x24: HandlePacketCommandBlockUpdate(a_ByteBuffer); return true;
 
 		default: break;
 	}
@@ -1080,165 +1113,14 @@ void cProtocol_1_14::WriteEntityMetadata(cPacketizer & a_Pkt, const cEntity & a_
 
 	switch (a_Entity.GetEntityType())
 	{
-		case cEntity::etPlayer:
+		case cEntity::etEntity:
 		{
-			auto & Player = static_cast<const cPlayer &>(a_Entity);
-
-			// TODO Set player custom name to their name.
-			// Then it's possible to move the custom name of mobs to the entities
-			// and to remove the "special" player custom name.
-			WriteEntityMetadata(a_Pkt, EntityMetadata::EntityCustomName, EntityMetadataType::String);
-			a_Pkt.WriteString(Player.GetName());
-
-			WriteEntityMetadata(a_Pkt, EntityMetadata::LivingHealth, EntityMetadataType::Float);
-			a_Pkt.WriteBEFloat(static_cast<float>(Player.GetHealth()));
-
-			WriteEntityMetadata(a_Pkt, EntityMetadata::PlayerDisplayedSkinParts, EntityMetadataType::Byte);
-			a_Pkt.WriteBEUInt8(static_cast<UInt8>(Player.GetSkinParts()));
-
-			WriteEntityMetadata(a_Pkt, EntityMetadata::PlayerMainHand, EntityMetadataType::Byte);
-			a_Pkt.WriteBEUInt8(Player.IsLeftHanded() ? 0 : 1);
+			LOGWARN("Unknown entity for writing metadata");
 			break;
 		}
-		case cEntity::etPickup:
-		{
-			WriteEntityMetadata(a_Pkt, EntityMetadata::ItemItem, EntityMetadataType::Item);
-			WriteItem(a_Pkt, static_cast<const cPickup &>(a_Entity).GetItem());
-			break;
-		}
-		case cEntity::etMinecart:
-		{
-			WriteEntityMetadata(a_Pkt, EntityMetadata::MinecartShakingPower, EntityMetadataType::VarInt);
-
-			// The following expression makes Minecarts shake more with less health or higher damage taken
-			auto & Minecart = static_cast<const cMinecart &>(a_Entity);
-			auto maxHealth = a_Entity.GetMaxHealth();
-			auto curHealth = a_Entity.GetHealth();
-			a_Pkt.WriteVarInt32(static_cast<UInt32>((maxHealth - curHealth) * Minecart.LastDamage() * 4));
-
-			WriteEntityMetadata(a_Pkt, EntityMetadata::MinecartShakingDirection, EntityMetadataType::VarInt);
-			a_Pkt.WriteVarInt32(1);  // (doesn't seem to effect anything)
-
-			WriteEntityMetadata(a_Pkt, EntityMetadata::MinecartShakingMultiplier, EntityMetadataType::Float);
-			a_Pkt.WriteBEFloat(static_cast<float>(Minecart.LastDamage() + 10));  // or damage taken
-
-			if (Minecart.GetPayload() == cMinecart::mpNone)
-			{
-				auto & RideableMinecart = static_cast<const cRideableMinecart &>(Minecart);
-				const cItem & MinecartContent = RideableMinecart.GetContent();
-				if (!MinecartContent.IsEmpty())
-				{
-					WriteEntityMetadata(a_Pkt, EntityMetadata::MinecartBlockIDMeta, EntityMetadataType::VarInt);
-					int Content = MinecartContent.m_ItemType;
-					Content |= MinecartContent.m_ItemDamage << 8;
-					a_Pkt.WriteVarInt32(static_cast<UInt32>(Content));
-
-					WriteEntityMetadata(a_Pkt, EntityMetadata::MinecartBlockY, EntityMetadataType::VarInt);
-					a_Pkt.WriteVarInt32(static_cast<UInt32>(RideableMinecart.GetBlockHeight()));
-
-					WriteEntityMetadata(a_Pkt, EntityMetadata::MinecartShowBlock, EntityMetadataType::Boolean);
-					a_Pkt.WriteBool(true);
-				}
-			}
-			else if (Minecart.GetPayload() == cMinecart::mpFurnace)
-			{
-				WriteEntityMetadata(a_Pkt, EntityMetadata::MinecartFurnacePowered, EntityMetadataType::Boolean);
-				a_Pkt.WriteBool(static_cast<const cMinecartWithFurnace &>(Minecart).IsFueled());
-			}
-			break;
-		}  // case etMinecart
-
-		case cEntity::etProjectile:
-		{
-			auto & Projectile = static_cast<const cProjectileEntity &>(a_Entity);
-			switch (Projectile.GetProjectileKind())
-			{
-				case cProjectileEntity::pkArrow:
-				{
-					WriteEntityMetadata(a_Pkt, EntityMetadata::ArrowFlags, EntityMetadataType::Byte);
-					a_Pkt.WriteBEInt8(static_cast<const cArrowEntity &>(Projectile).IsCritical() ? 1 : 0);
-
-					// TODO: Piercing level
-					break;
-				}
-				case cProjectileEntity::pkFirework:
-				{
-					// TODO
-					break;
-				}
-				case cProjectileEntity::pkSplashPotion:
-				{
-					// TODO
-				}
-				default:
-				{
-					break;
-				}
-			}
-			break;
-		}  // case etProjectile
-
-		case cEntity::etMonster:
-		{
-			WriteMobMetadata(a_Pkt, static_cast<const cMonster &>(a_Entity));
-			break;
-		}
-
-		case cEntity::etBoat:
-		{
-			auto & Boat = static_cast<const cBoat &>(a_Entity);
-
-			WriteEntityMetadata(a_Pkt, EntityMetadata::BoatLastHitTime, EntityMetadataType::VarInt);
-			a_Pkt.WriteVarInt32(static_cast<UInt32>(Boat.GetLastDamage()));
-
-			WriteEntityMetadata(a_Pkt, EntityMetadata::BoatForwardDirection, EntityMetadataType::VarInt);
-			a_Pkt.WriteVarInt32(static_cast<UInt32>(Boat.GetForwardDirection()));
-
-			WriteEntityMetadata(a_Pkt, EntityMetadata::BoatDamageTaken, EntityMetadataType::Float);
-			a_Pkt.WriteBEFloat(Boat.GetDamageTaken());
-
-			WriteEntityMetadata(a_Pkt, EntityMetadata::BoatType, EntityMetadataType::VarInt);
-			a_Pkt.WriteVarInt32(static_cast<UInt32>(Boat.GetMaterial()));
-
-			WriteEntityMetadata(a_Pkt, EntityMetadata::BoatRightPaddleTurning, EntityMetadataType::Boolean);
-			a_Pkt.WriteBool(Boat.IsRightPaddleUsed());
-
-			WriteEntityMetadata(a_Pkt, EntityMetadata::BoatLeftPaddleTurning, EntityMetadataType::Boolean);
-			a_Pkt.WriteBool(static_cast<bool>(Boat.IsLeftPaddleUsed()));
-
-			WriteEntityMetadata(a_Pkt, EntityMetadata::BoatSplashTimer, EntityMetadataType::VarInt);
-			a_Pkt.WriteVarInt32(0);
-
-			break;
-		}  // case etBoat
-
-		case cEntity::etItemFrame:
-		{
-			const auto & Frame = static_cast<const cItemFrame &>(a_Entity);
-			WriteEntityMetadata(a_Pkt, EntityMetadata::ItemFrameItem, EntityMetadataType::Item);
-			WriteItem(a_Pkt, Frame.GetItem());
-			WriteEntityMetadata(a_Pkt, EntityMetadata::ItemFrameRotation, EntityMetadataType::VarInt);
-			a_Pkt.WriteVarInt32(Frame.GetItemRotation());
-			break;
-		}  // case etItemFrame
-
-		case cEntity::etEnderCrystal:
-		{
-			const auto & EnderCrystal = static_cast<const cEnderCrystal &>(a_Entity);
-			if (EnderCrystal.DisplaysBeam())
-			{
-				WriteEntityMetadata(a_Pkt, EntityMetadata::EnderCrystalBeamTarget, EntityMetadataType::OptPosition);
-				a_Pkt.WriteBool(true);  // Dont do a second check if it should display the beam
-				a_Pkt.WriteXYZPosition64(EnderCrystal.GetBeamTarget());
-			}
-			WriteEntityMetadata(a_Pkt, EntityMetadata::EnderCrystalShowBottom, EntityMetadataType::Boolean);
-			a_Pkt.WriteBool(EnderCrystal.ShowsBottom());
-			break;
-		}  // case etEnderCrystal
-
 		default:
 		{
-			break;
+			Super::WriteEntityMetadata(a_Pkt, a_Entity);
 		}
 	}
 }
@@ -1314,10 +1196,12 @@ void cProtocol_1_14::WriteMobMetadata(cPacketizer & a_Pkt, const cMonster & a_Mo
 		{
 			auto & Enderman = static_cast<const cEnderman &>(a_Mob);
 			WriteEntityMetadata(a_Pkt, EntityMetadata::EndermanCarriedBlock, EntityMetadataType::OptBlockID);
-			UInt32 Carried = 0;
-			Carried |= static_cast<UInt32>(Enderman.GetCarriedBlock() << 4);
-			Carried |= Enderman.GetCarriedMeta();
-			a_Pkt.WriteVarInt32(Carried);
+			auto Carried = Enderman.GetCarriedBlock();
+			a_Pkt.WriteBool(Carried != BlockType::Air);
+			if (Carried != BlockType::Air)
+			{
+				a_Pkt.WriteVarInt32(Palette_1_14::From(Carried));
+			}
 
 			WriteEntityMetadata(a_Pkt, EntityMetadata::EndermanScreaming, EntityMetadataType::Boolean);
 			a_Pkt.WriteBool(Enderman.IsScreaming());
