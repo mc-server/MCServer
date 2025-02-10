@@ -21,6 +21,7 @@ It directly outputs a string containing the serialized NBT data.
 
 #include <system_error>
 #include "../Endianness.h"
+#include "ByteBuffer.h"
 
 
 
@@ -41,7 +42,8 @@ enum eTagType
 	TAG_List      = 9,
 	TAG_Compound  = 10,
 	TAG_IntArray  = 11,
-	TAG_Max       = 11,  // The maximum value for a tag type
+	TAG_LongArray = 12,
+	TAG_Max       = 12,  // The maximum value for a tag type
 } ;
 
 
@@ -153,6 +155,8 @@ class cParsedNBT
 {
 public:
 	cParsedNBT(ContiguousByteBufferView a_Data);
+
+	cParsedNBT(cByteBuffer & a_Data, ContiguousByteBuffer & a_Bfr);
 
 	bool IsValid(void) const { return (m_Error == eNBTParseError::npSuccess); }
 
@@ -322,6 +326,7 @@ class cFastNBTWriter
 {
 public:
 	cFastNBTWriter(const AString & a_RootTagName = "");
+	cFastNBTWriter(bool Network1_21);
 
 	void BeginCompound(const AString & a_Name);
 	void EndCompound(void);
@@ -339,6 +344,7 @@ public:
 	void AddByteArray(const AString & a_Name, const char * a_Value, size_t a_NumElements);
 	void AddByteArray(const AString & a_Name, size_t a_NumElements, unsigned char a_Value);
 	void AddIntArray (const AString & a_Name, const Int32 * a_Value, size_t a_NumElements);
+	void AddLongArray(const AString & a_Name, const Int64 * a_Value, size_t a_NumElements);
 
 	void AddByteArray(const AString & a_Name, const AString & a_Value)
 	{
